@@ -4,6 +4,7 @@ import matplotlib
 import os
 import json
 import itertools
+from webmet.const import line_types
 import multiprocessing as mp
 import sys
 from webmet.exceptions import MergeError
@@ -154,13 +155,16 @@ class WebKernel:
         return candidates
 
     def to_polar(self, origin=None, flipped=False):
-        return [l.to_polar(origin, flipped) for l in self.lines]
+        [l.to_polar(origin, use_transformed=True, flipped=flipped) for l in self.lines]
+        # return [l.to_polar(origin, flipped) for l in self.lines]
 
     def ellipse_transform(self, origin, orientation, scaling):
-        return [l.ellipse_transform(origin, orientation, scaling) for l in self.lines]
+        [l.ellipse_transform(origin, orientation, scaling) for l in self.lines]
+        # return [l.ellipse_transform(origin, orientation, scaling) for l in self.lines]
 
     def ellipse_and_polar(self, origin, orientation, scaling, flipped=False):
-        return [l.ellipse_and_polar(origin, orientation, scaling, flipped) for l in self.lines]
+        [l.ellipse_and_polar(origin, orientation, scaling, flipped) for l in self.lines]
+        # return [l.ellipse_and_polar(origin, orientation, scaling, flipped) for l in self.lines]
 
     def as_dict(self):
         """Export a Web Kernel as a dictionary"""
@@ -168,8 +172,10 @@ class WebKernel:
 
 
 class WebLine:
-    def __init__(self, line, orientation=None, length=None):
+    def __init__(self, line, orientation=None, length=None, line_type=0):
         self.line = line
+        self.transformed_line = line
+        self.line_type = line_type
 
         if orientation is not None:
             self.orientation = orientation
@@ -185,7 +191,7 @@ class WebLine:
         return "{0}({1})".format(self.__class__.__name__, self.line)
 
     def __str__(self):
-        return "{0}\nLength: {1}\nOrientation: {2}".format(self.line, self.length, self.orientation)
+        return "{0}\nLength: {1}\nOrientation: {2}\nType: {3}".format(self.line, self.length, self.orientation, line_types[self.line_type % len(line_types)])
 
     # Implement getitem to allow indexing the line to get out the points easily
     def __getitem__(self, i):
@@ -200,11 +206,15 @@ class WebLine:
     def find_length(self):
         return line_length(self.line)
 
-    def to_polar(self, origin=None, flipped=False, points=None):
-        if points is None:
+    def to_polar(self, origin=None, use_transformed=True, flipped=False):
+        if use_transformed:
+            points = self.transformed_line
+        else:
             points = self.line
+
         if isinstance(points, list):
             points = np.array(points)
+
         x, y = points[:, 0], points[:, 1]
         if origin is not None:
             ox, oy = origin
@@ -212,9 +222,14 @@ class WebLine:
             y = y - oy
         r = np.sqrt(x ** 2 + y ** 2)
         t = np.arctan2(y, x)
+
         if flipped:
-            return list(zip(t, r))
-        return list(zip(r, t))
+            out = list(zip(t, r))
+        else:
+            out = list(zip(r, t))
+
+        self.transformed_line = out
+        # return out
 
     def ellipse_transform(self, origin, orientation, scaling):
         points = self.line
@@ -229,12 +244,15 @@ class WebLine:
         # Backtransform
         newx = (origin[0] + np.cos(orientation) * tx - np.sin(orientation) * ty)#.tolist()
         newy = (origin[1] + np.sin(orientation) * tx + np.cos(orientation) * ty)#.tolist()
-        return list(zip(newx, newy))
+        self.transformed_line = list(zip(newx, newy))
+        # return list(zip(newx, newy))
 
     def ellipse_and_polar(self, origin, orientation, scaling, flipped=False):
-        return self.to_polar(origin, flipped, points=self.ellipse_transform(origin, orientation, scaling))
+        self.ellipse_transform(origin, orientation, scaling)
+        self.to_polar(origin, use_transformed=True, flipped=flipped)
 
     def export(self):
+        # Should add option to export transformed
         return self.line
 
 
