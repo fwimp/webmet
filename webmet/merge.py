@@ -166,6 +166,15 @@ class WebKernel:
         [l.ellipse_and_polar(origin, orientation, scaling, flipped) for l in self.lines]
         # return [l.ellipse_and_polar(origin, orientation, scaling, flipped) for l in self.lines]
 
+    def as_list(self, transformed=False):
+        if transformed:
+            return [l.transformed_line for l in self.lines]
+        else:
+            return [l.line for l in self.lines]
+
+    def as_list_transformed(self):
+        return self.as_list(transformed=True)
+
     def as_dict(self):
         """Export a Web Kernel as a dictionary"""
         return {"dimensions": self.dimensions, "lines": [line.export() for line in self.lines]}
