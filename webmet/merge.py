@@ -154,8 +154,8 @@ class WebKernel:
         print(len(candidates))
         return candidates
 
-    def to_polar(self, origin=None, flipped=False):
-        [l.to_polar(origin, use_transformed=True, flipped=flipped) for l in self.lines]
+    def to_polar(self, origin=None, overwrite=True, flipped=False):
+        [l.to_polar(origin, overwrite=overwrite, flipped=flipped) for l in self.lines]
         # return [l.to_polar(origin, flipped) for l in self.lines]
 
     def ellipse_transform(self, origin, orientation, scaling):
@@ -206,11 +206,11 @@ class WebLine:
     def find_length(self):
         return line_length(self.line)
 
-    def to_polar(self, origin=None, use_transformed=True, flipped=False):
-        if use_transformed:
-            points = self.transformed_line
-        else:
+    def to_polar(self, origin=None, overwrite=True, flipped=False):
+        if overwrite:
             points = self.line
+        else:
+            points = self.transformed_line
 
         if isinstance(points, list):
             points = np.array(points)
@@ -249,7 +249,7 @@ class WebLine:
 
     def ellipse_and_polar(self, origin, orientation, scaling, flipped=False):
         self.ellipse_transform(origin, orientation, scaling)
-        self.to_polar(origin, use_transformed=True, flipped=flipped)
+        self.to_polar(origin, overwrite=True, flipped=flipped)
 
     def export(self):
         # Should add option to export transformed
