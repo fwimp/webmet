@@ -157,6 +157,10 @@ class WebKernel:
         print(len(candidates))
         return candidates
 
+    def reset_transformed(self):
+        [l.reset_transformed() for l in self.lines]
+        return self
+
     def to_polar(self, origin=None, overwrite=True, flipped=False):
         [l.to_polar(origin, overwrite=overwrite, flipped=flipped) for l in self.lines]
         # return [l.to_polar(origin, flipped) for l in self.lines]
@@ -170,6 +174,10 @@ class WebKernel:
     def ellipse_and_polar(self, origin, orientation, scaling, overwrite=True, flipped=False):
         [l.ellipse_and_polar(origin, orientation, scaling, overwrite, flipped) for l in self.lines]
         # return [l.ellipse_and_polar(origin, orientation, scaling, flipped) for l in self.lines]
+        return self
+
+    def rescale(self, dimensions=None):
+        [l.rescale(dimensions) for l in self.lines]
         return self
 
     def as_list(self, transformed=False):
@@ -221,6 +229,10 @@ class WebLine:
     def find_length(self):
         return line_length(self.line)
 
+    def reset_transformed(self):
+        self.transformed_line = self.line
+        return self
+
     def to_polar(self, origin=None, overwrite=True, flipped=False):
         if overwrite:
             points = self.line
@@ -263,6 +275,27 @@ class WebLine:
         newx = (origin[0] + np.cos(orientation) * tx - np.sin(orientation) * ty)#.tolist()
         newy = (origin[1] + np.sin(orientation) * tx + np.cos(orientation) * ty)#.tolist()
         self.transformed_line = list(zip(newx, newy))
+        return self
+
+    def rescale(self, dimensions=None):
+        points = self.transformed_line
+        if isinstance(points, list):
+            points = np.array(points)
+
+        # t, r = zip(*list(itertools.chain.from_iterable(points)))
+        t, r = points[:, 0], points[:, 1]
+        # t = np.asarray(t)
+        t = t - min(t)  # normalise to between 0 and 2pi
+        if dimensions is None:
+            # If no dimensions specified, make the dimensions equal to the size of the r axis
+            # (which is at the scale we should be at)
+            dimensions = [max(r), max(r)]
+
+        # Find scaling factor by mapping the max of t to the max of dimensions and apply this to the vector of ts
+        # This leads to a default scaling of max(r) * max(r) which is at least the right order of magnitude
+
+        t = t * (max(dimensions) / max(t))
+        self.transformed_line = list(zip(t, r))
         return self
 
     def ellipse_and_polar(self, origin, orientation, scaling, overwrite=True, flipped=False):
