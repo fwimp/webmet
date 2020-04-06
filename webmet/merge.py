@@ -4,6 +4,7 @@ import matplotlib
 import os
 import json
 import itertools
+from webmet.const import line_types
 import multiprocessing as mp
 import sys
 from webmet.exceptions import MergeError
@@ -112,9 +113,9 @@ class WebKernel:
     def __init__(self, webdict=None):
         if webdict:
             self.webdict = webdict
-            self.lines = [WebLine(x) for x in self.webdict["lines"]]
-            self.dimensions = self.webdict.get("dimensions", self.find_dimensions())
-            self.remove_zero_lines()
+            self.lines = [WebLine(x, i) for i, x in enumerate(self.webdict["lines"])]
+            self.dimensions = self.webdict.get("dimensions", self.find_dimensions(self))
+            self.remove_zero_lines(returnself=False)
         else:
             self.webdict = dict()
             self.lines = []
@@ -135,16 +136,19 @@ class WebKernel:
     def __repr__(self):
         return "{0}({1})".format(self.__class__.__name__, self.webdict)
 
-    def find_dimensions(self):
+    @staticmethod
+    def find_dimensions(kernel):
         """Find minimum dimensions of a web kernel"""
-        flattened = [item for sublist in self.lines for item in sublist]
+        flattened = [item for sublist in kernel.lines for item in sublist]
         xs, ys = zip(*flattened)
         dimx = int(max(xs))
         dimy = int(max(ys))
         return [dimx, dimy]
 
-    def remove_zero_lines(self):
+    def remove_zero_lines(self, returnself=True):
         self.lines = [x for x in self.lines if x.length > 0]
+        if returnself:
+            return self
 
     def find_merge_candidates(self):
         candidates = list(itertools.combinations(self.lines, 2))
@@ -153,14 +157,43 @@ class WebKernel:
         print(len(candidates))
         return candidates
 
-    def to_polar(self, origin=None, flipped=False):
-        return [l.to_polar(origin, flipped) for l in self.lines]
+    # Transformation methods
 
-    def ellipse_transform(self, origin, orientation, scaling):
-        return [l.ellipse_transform(origin, orientation, scaling) for l in self.lines]
+    def reset_transformed(self):
+        [l.reset_transformed() for l in self.lines]
+        return self
 
-    def ellipse_and_polar(self, origin, orientation, scaling, flipped=False):
-        return [l.ellipse_and_polar(origin, orientation, scaling, flipped) for l in self.lines]
+    def recalculate_transformed_orientations(self):
+        [l.recalculate_transformed_orientation() for l in self.lines]
+        return self
+
+    def to_polar(self, origin=None, overwrite=True, flipped=False):
+        [l.to_polar(origin, overwrite=overwrite, flipped=flipped) for l in self.lines]
+        # return [l.to_polar(origin, flipped) for l in self.lines]
+        return self
+
+    def ellipse_transform(self, origin, orientation, scaling, overwrite=True):
+        [l.ellipse_transform(origin, orientation, scaling, overwrite) for l in self.lines]
+        # return [l.ellipse_transform(origin, orientation, scaling) for l in self.lines]
+        return self
+
+    def ellipse_and_polar(self, origin, orientation, scaling, overwrite=True, flipped=False):
+        [l.ellipse_and_polar(origin, orientation, scaling, overwrite, flipped) for l in self.lines]
+        # return [l.ellipse_and_polar(origin, orientation, scaling, flipped) for l in self.lines]
+        return self
+
+    def rescale(self, dimensions=None):
+        [l.rescale(dimensions) for l in self.lines]
+        return self
+
+    def as_list(self, transformed=False):
+        if transformed:
+            return [l.transformed_line for l in self.lines]
+        else:
+            return [l.line for l in self.lines]
+
+    def as_list_transformed(self):
+        return self.as_list(transformed=True)
 
     def as_dict(self):
         """Export a Web Kernel as a dictionary"""
@@ -168,8 +201,11 @@ class WebKernel:
 
 
 class WebLine:
-    def __init__(self, line, orientation=None, length=None):
+    def __init__(self, line, lineid=-1, orientation=None, length=None, line_type=0):
         self.line = line
+        self.id = lineid
+        self.transformed_line = line
+        self.line_type = line_type
 
         if orientation is not None:
             self.orientation = orientation
@@ -181,11 +217,17 @@ class WebLine:
         else:
             self.length = self.find_length()
 
+        self.transformed_orientation = self.orientation
+
     def __repr__(self):
         return "{0}({1})".format(self.__class__.__name__, self.line)
 
     def __str__(self):
-        return "{0}\nLength: {1}\nOrientation: {2}".format(self.line, self.length, self.orientation)
+        return "{0}\nLength: {1}\nOrientation: {2}\nType: {3}\nID: {4}".format(self.line,
+                                                                               self.length,
+                                                                               self.orientation,
+                                                                               line_types[self.line_type % len(line_types)],
+                                                                               self.id)
 
     # Implement getitem to allow indexing the line to get out the points easily
     def __getitem__(self, i):
@@ -200,11 +242,26 @@ class WebLine:
     def find_length(self):
         return line_length(self.line)
 
-    def to_polar(self, origin=None, flipped=False, points=None):
-        if points is None:
+    # Transformation methods
+
+    def reset_transformed(self):
+        self.transformed_line = self.line
+        self.transformed_orientation = self.orientation
+        return self
+
+    def recalculate_transformed_orientation(self):
+        self.transformed_orientation = find_line_orientation(self.transformed_line)
+        return self
+
+    def to_polar(self, origin=None, overwrite=True, flipped=False):
+        if overwrite:
             points = self.line
+        else:
+            points = self.transformed_line
+
         if isinstance(points, list):
             points = np.array(points)
+
         x, y = points[:, 0], points[:, 1]
         if origin is not None:
             ox, oy = origin
@@ -212,12 +269,20 @@ class WebLine:
             y = y - oy
         r = np.sqrt(x ** 2 + y ** 2)
         t = np.arctan2(y, x)
-        if flipped:
-            return list(zip(t, r))
-        return list(zip(r, t))
 
-    def ellipse_transform(self, origin, orientation, scaling):
-        points = self.line
+        if flipped:
+            out = list(zip(t, r))
+        else:
+            out = list(zip(r, t))
+
+        self.transformed_line = out
+        return self
+
+    def ellipse_transform(self, origin, orientation, scaling, overwrite=True):
+        if overwrite:
+            points = self.line
+        else:
+            points = self.transformed_line
         if isinstance(points, list):
             points = np.array(points)
 
@@ -227,14 +292,39 @@ class WebLine:
         ty = (1 / scaling) * (((y - origin[1]) * np.cos(orientation)) - ((x - origin[0]) * np.sin(orientation)))
 
         # Backtransform
-        newx = (origin[0] + np.cos(orientation) * tx - np.sin(orientation) * ty)#.tolist()
-        newy = (origin[1] + np.sin(orientation) * tx + np.cos(orientation) * ty)#.tolist()
-        return list(zip(newx, newy))
+        newx = (origin[0] + np.cos(orientation) * tx - np.sin(orientation) * ty)  # .tolist()
+        newy = (origin[1] + np.sin(orientation) * tx + np.cos(orientation) * ty)  # .tolist()
+        self.transformed_line = list(zip(newx, newy))
+        return self
 
-    def ellipse_and_polar(self, origin, orientation, scaling, flipped=False):
-        return self.to_polar(origin, flipped, points=self.ellipse_transform(origin, orientation, scaling))
+    def rescale(self, dimensions=None):
+        points = self.transformed_line
+        if isinstance(points, list):
+            points = np.array(points)
+
+        # t, r = zip(*list(itertools.chain.from_iterable(points)))
+        t, r = points[:, 0], points[:, 1]
+        # t = np.asarray(t)
+        t = t - min(t)  # normalise to between 0 and 2pi
+        if dimensions is None:
+            # If no dimensions specified, make the dimensions equal to the size of the r axis
+            # (which is at the scale we should be at)
+            dimensions = [max(r), max(r)]
+
+        # Find scaling factor by mapping the max of t to the max of dimensions and apply this to the vector of ts
+        # This leads to a default scaling of max(r) * max(r) which is at least the right order of magnitude
+
+        t = t * (max(dimensions) / max(t))
+        self.transformed_line = list(zip(t, r))
+        return self
+
+    def ellipse_and_polar(self, origin, orientation, scaling, overwrite=True, flipped=False):
+        self.ellipse_transform(origin, orientation, scaling, overwrite=overwrite).to_polar(origin, overwrite=False,
+                                                                                           flipped=flipped)
+        return self
 
     def export(self):
+        # Should add option to export transformed
         return self.line
 
 
