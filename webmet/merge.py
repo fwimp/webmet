@@ -113,7 +113,7 @@ class WebKernel:
     def __init__(self, webdict=None):
         if webdict:
             self.webdict = webdict
-            self.lines = [WebLine(x) for x in self.webdict["lines"]]
+            self.lines = [WebLine(x, i) for i, x in enumerate(self.webdict["lines"])]
             self.dimensions = self.webdict.get("dimensions", self.find_dimensions(self))
             self.remove_zero_lines(returnself=False)
         else:
@@ -157,8 +157,14 @@ class WebKernel:
         print(len(candidates))
         return candidates
 
+    # Transformation methods
+
     def reset_transformed(self):
         [l.reset_transformed() for l in self.lines]
+        return self
+
+    def recalculate_transformed_orientations(self):
+        [l.recalculate_transformed_orientation() for l in self.lines]
         return self
 
     def to_polar(self, origin=None, overwrite=True, flipped=False):
@@ -195,8 +201,9 @@ class WebKernel:
 
 
 class WebLine:
-    def __init__(self, line, orientation=None, length=None, line_type=0):
+    def __init__(self, line, lineid=-1, orientation=None, length=None, line_type=0):
         self.line = line
+        self.id = lineid
         self.transformed_line = line
         self.line_type = line_type
 
@@ -210,11 +217,17 @@ class WebLine:
         else:
             self.length = self.find_length()
 
+        self.transformed_orientation = self.orientation
+
     def __repr__(self):
         return "{0}({1})".format(self.__class__.__name__, self.line)
 
     def __str__(self):
-        return "{0}\nLength: {1}\nOrientation: {2}\nType: {3}".format(self.line, self.length, self.orientation, line_types[self.line_type % len(line_types)])
+        return "{0}\nLength: {1}\nOrientation: {2}\nType: {3}\nID: {4}".format(self.line,
+                                                                               self.length,
+                                                                               self.orientation,
+                                                                               line_types[self.line_type % len(line_types)],
+                                                                               self.id)
 
     # Implement getitem to allow indexing the line to get out the points easily
     def __getitem__(self, i):
@@ -229,8 +242,15 @@ class WebLine:
     def find_length(self):
         return line_length(self.line)
 
+    # Transformation methods
+
     def reset_transformed(self):
         self.transformed_line = self.line
+        self.transformed_orientation = self.orientation
+        return self
+
+    def recalculate_transformed_orientation(self):
+        self.transformed_orientation = find_line_orientation(self.transformed_line)
         return self
 
     def to_polar(self, origin=None, overwrite=True, flipped=False):
@@ -272,8 +292,8 @@ class WebLine:
         ty = (1 / scaling) * (((y - origin[1]) * np.cos(orientation)) - ((x - origin[0]) * np.sin(orientation)))
 
         # Backtransform
-        newx = (origin[0] + np.cos(orientation) * tx - np.sin(orientation) * ty)#.tolist()
-        newy = (origin[1] + np.sin(orientation) * tx + np.cos(orientation) * ty)#.tolist()
+        newx = (origin[0] + np.cos(orientation) * tx - np.sin(orientation) * ty)  # .tolist()
+        newy = (origin[1] + np.sin(orientation) * tx + np.cos(orientation) * ty)  # .tolist()
         self.transformed_line = list(zip(newx, newy))
         return self
 
@@ -299,7 +319,8 @@ class WebLine:
         return self
 
     def ellipse_and_polar(self, origin, orientation, scaling, overwrite=True, flipped=False):
-        self.ellipse_transform(origin, orientation, scaling, overwrite=overwrite).to_polar(origin, overwrite=False, flipped=flipped)
+        self.ellipse_transform(origin, orientation, scaling, overwrite=overwrite).to_polar(origin, overwrite=False,
+                                                                                           flipped=flipped)
         return self
 
     def export(self):
