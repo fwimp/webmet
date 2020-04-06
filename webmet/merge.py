@@ -5,10 +5,12 @@ import os
 import json
 import itertools
 from webmet.const import line_types
+import matplotlib.pyplot as plt
 import multiprocessing as mp
 import sys
 from webmet.exceptions import MergeError
 import logging
+
 logger = logging.getLogger(__name__)
 logger.propagate = True
 
@@ -109,6 +111,21 @@ def find_orientation_difference(line1, line2, absolute=True):
         return out
 
 
+def plot_kernel(kernel):
+    colour_list = ["gray", "blue", "green", "red", "yellow"]
+
+    fig, ax = plt.subplots(1, figsize=(10, 10))
+    ax.patch.set_facecolor("#460555")
+    for line in kernel:
+        p0, p1 = line.line
+        ax.plot((p0[0], p1[0]), (p0[1], p1[1]), color=colour_list[line.line_type])
+    ax.set_xlim((0, kernel.dimensions[0]))
+    ax.set_ylim((0, kernel.dimensions[1]))
+
+    # ax.axis('off')
+    plt.show()
+
+
 class WebKernel:
     def __init__(self, webdict=None):
         if webdict:
@@ -184,6 +201,39 @@ class WebKernel:
 
     def rescale(self, dimensions=None):
         [l.rescale(dimensions) for l in self.lines]
+        return self
+
+    def paint(self, types, reset_missing=False):
+        """Categorise lines based upon a set of line types.
+
+        Note: Using a dictionary of types in the form 'id: type_number' is the preferred method
+        as order preservation is thus unnecessary."""
+
+        if isinstance(types, dict):
+            if reset_missing is True:
+                for l in self.lines:
+                    # Get the line type from the types dict or use the default if it's not in there.
+                    l.line_type = int(types.get(l.id, 0))
+            else:
+                for l in self.lines:
+                    l.line_type = int(types.get(l.id, l.line_type))
+        else:
+            # Work on lists by index and assume that the orders of the lines and the type list are the same.
+            for i, l in enumerate(self.lines):
+                try:
+                    l.line_type = int(types[i])
+                except IndexError:
+                    # If we pass the end of the type list then just use a default value or leave it alone.
+                    if reset_missing is True:
+                        l.line_type = 0
+                    else:
+                        pass
+        return self
+
+    def demo_random_paint(self):
+        rng = np.random.default_rng()
+        types = rng.integers(0, len(line_types), size=len(self.lines))
+        self.paint(types)
         return self
 
     def as_list(self, transformed=False):
@@ -493,7 +543,8 @@ def merge_line_segments(line1, line2, dmax_x=None, dmax_y=None, dmax_y_o=None, d
     #             raise MergeError("Y distance outside maximum threshold value. {} > {}".format(abs(maxy - miny), dmax_y_working))
 
     # Retransform min and max values back to normal space
-    merged_line = (point_from_framespace((minx, 0), centroid, thetar), point_from_framespace((maxx, 0), centroid, thetar))
+    merged_line = (
+    point_from_framespace((minx, 0), centroid, thetar), point_from_framespace((maxx, 0), centroid, thetar))
     return merged_line
 
 
