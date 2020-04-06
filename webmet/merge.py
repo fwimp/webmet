@@ -5,6 +5,7 @@ import os
 import json
 import itertools
 from webmet.const import line_types
+from webmet.util import flip_web
 import matplotlib.pyplot as plt
 import multiprocessing as mp
 import sys
@@ -548,9 +549,11 @@ def merge_line_segments(line1, line2, dmax_x=None, dmax_y=None, dmax_y_o=None, d
     return merged_line
 
 
-def load_kernel(kernelpath):
+def load_kernel(kernelpath, flipped=False):
     with open(os.path.join(kernelpath), "r") as f:
         web_dict = json.load(f)
+    if flipped:
+        web_dict["lines"] = flip_web(web_dict["lines"])
     return WebKernel(web_dict)
 
 
