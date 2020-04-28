@@ -224,20 +224,15 @@ class WebKernel:
     def rescale(self, dimensions=None):
         # Get list of rs and thetas from self.as_list_transformed()
         t, r = zip(*list(itertools.chain.from_iterable(self.as_list_transformed())))
-        t = np.asarray(t)
+
         # Determine whether to use largest of dimensions or to derive the target max width from r (as in WebLine method)
         if dimensions is None:
             # If no dimensions specified, make the dimensions equal to the size of the r axis
             # (which is at the scale we should be at)
             dimensions = [max(r), max(r)]
 
-        # Find tmin & tmax from thetas
-        tmin = min(t)
-        tmax = max(t)
-        ttarget = max(dimensions)
-
         # Rescale each line
-        [l.rescale(target=ttarget, tmin=tmin, tmax=tmax) for l in self.lines]
+        [l.rescale(target=max(dimensions)) for l in self.lines]
         # [l.rescale(dimensions) for l in self.lines]
         return self
 
@@ -385,7 +380,7 @@ class WebLine:
         self.transformed_line = list(zip(newx, newy))
         return self
 
-    def rescale(self, target, tmin, tmax):
+    def rescale(self, target):
 
         points = self.transformed_line
         if isinstance(points, list):
@@ -393,16 +388,12 @@ class WebLine:
 
         t, r = points[:, 0], points[:, 1]
 
-        t = t - tmin  # normalise to between 0 and 2pi
-        # Normalise tmax so tmin is 0. This is done here rather than at the kernel level to allow the user to pass in
-        # sane tmax and tmin values, rather than having to transform tmax. It does however cause a minor slowdown so
-        # could be ported out to the kernel level method, requiring making this method private for UX reasons.
-        tmax = tmax - tmin
+        t = t + np.pi  # normalise to between 0 and 2pi aka t = t - tmin
 
-        # Find scaling factor by mapping the max of t to the max of dimensions and apply this to the vector of ts
-        # This leads to a default scaling of max(r) * max(r) which is at least the right order of magnitude
+        tmax = 2 * np.pi    # aka tmax = tmax - tmin
 
-        t = t * (target / tmax)  # Can lead to a div0 error if all ts are the same...
+        # Find scaling factor by mapping the max of t to the target and apply this to the vector of ts
+        t = t * (target / 2 * np.pi)
 
         self.transformed_line = list(zip(t, r))
         return self
