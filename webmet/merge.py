@@ -1,10 +1,9 @@
 import numpy as np
-import matplotlib.pyplot as plt
 import matplotlib
 import os
 import json
 import itertools
-from webmet.const import line_types
+from webmet.const import line_types, colour_list
 from webmet.util import flip_web
 import matplotlib.pyplot as plt
 import multiprocessing as mp
@@ -113,7 +112,7 @@ def find_orientation_difference(line1, line2, absolute=True):
 
 
 def plot_kernel(kernel):
-    colour_list = ["gray", "blue", "green", "red", "yellow"]
+    # Default to including all linetypes
 
     fig, ax = plt.subplots(1, figsize=(10, 10))
     ax.patch.set_facecolor("#460555")
