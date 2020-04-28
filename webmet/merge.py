@@ -10,6 +10,7 @@ import multiprocessing as mp
 import sys
 from webmet.exceptions import MergeError
 import logging
+import warnings
 
 logger = logging.getLogger(__name__)
 logger.propagate = True
@@ -111,19 +112,40 @@ def find_orientation_difference(line1, line2, absolute=True):
         return out
 
 
-def plot_kernel(kernel):
+def plot_kernel(kernel, filter_lines=None, transformed=False):
     # Default to including all linetypes
+    incl_linetypes = set([x for x in range(len(line_types))])
 
+    # Allow user to filter only the linetypes they wish for
+    if filter_lines is not None:
+        if isinstance(filter_lines, str):
+            # Convert filter as string into list of one
+            filter_lines = [filter_lines]
+        incl_linetypes = set()
+        for lt in filter_lines:
+            try:
+                incl_linetypes.add(line_types.index(lt.title()))
+            except ValueError:
+                warnings.warn('"{}" is not a valid linetype, ignoring.'.format(lt))
+
+    # Plot Kernel
     fig, ax = plt.subplots(1, figsize=(10, 10))
     ax.patch.set_facecolor("#460555")
     for line in kernel:
-        p0, p1 = line.line
-        ax.plot((p0[0], p1[0]), (p0[1], p1[1]), color=colour_list[line.line_type])
-    ax.set_xlim((0, kernel.dimensions[0]))
-    ax.set_ylim((0, kernel.dimensions[1]))
+        if line.line_type in incl_linetypes:
+            if transformed:
+                p0, p1 = line.transformed_line
+            else:
+                p0, p1 = line.line
+            ax.plot((p0[0], p1[0]), (p0[1], p1[1]), color=colour_list[line.line_type])
+
+    if not transformed:
+        ax.set_xlim((0, kernel.dimensions[0]))
+        ax.set_ylim((0, kernel.dimensions[1]))
 
     # ax.axis('off')
     plt.show()
+    # TODO: Make this func potentially return a plot object
 
 
 class WebKernel:
