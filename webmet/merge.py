@@ -222,7 +222,23 @@ class WebKernel:
         return self
 
     def rescale(self, dimensions=None):
-        [l.rescale(dimensions) for l in self.lines]
+        # Get list of rs and thetas from self.as_list_transformed()
+        t, r = zip(*list(itertools.chain.from_iterable(self.as_list_transformed())))
+        t = np.asarray(t)
+        # Determine whether to use largest of dimensions or to derive the target max width from r (as in WebLine method)
+        if dimensions is None:
+            # If no dimensions specified, make the dimensions equal to the size of the r axis
+            # (which is at the scale we should be at)
+            dimensions = [max(r), max(r)]
+
+        # Find tmin & tmax from thetas
+        tmin = min(t)
+        tmax = max(t)
+        ttarget = max(dimensions)
+
+        # Rescale each line
+        [l.rescale(target=ttarget, tmin=tmin, tmax=tmax) for l in self.lines]
+        # [l.rescale(dimensions) for l in self.lines]
         return self
 
     def paint(self, types, reset_missing=False):
@@ -340,7 +356,7 @@ class WebLine:
             x = x - ox
             y = y - oy
         r = np.sqrt(x ** 2 + y ** 2)
-        t = np.arctan2(y, x)
+        t = np.arctan2(y, x)    # Note could fail in the case that x = y = 0? Need to check
 
         if flipped:
             out = list(zip(t, r))
@@ -369,24 +385,25 @@ class WebLine:
         self.transformed_line = list(zip(newx, newy))
         return self
 
-    def rescale(self, dimensions=None):
+    def rescale(self, target, tmin, tmax):
+
         points = self.transformed_line
         if isinstance(points, list):
             points = np.array(points)
 
-        # t, r = zip(*list(itertools.chain.from_iterable(points)))
         t, r = points[:, 0], points[:, 1]
-        # t = np.asarray(t)
-        t = t - min(t)  # normalise to between 0 and 2pi
-        if dimensions is None:
-            # If no dimensions specified, make the dimensions equal to the size of the r axis
-            # (which is at the scale we should be at)
-            dimensions = [max(r), max(r)]
+
+        t = t - tmin  # normalise to between 0 and 2pi
+        # Normalise tmax so tmin is 0. This is done here rather than at the kernel level to allow the user to pass in
+        # sane tmax and tmin values, rather than having to transform tmax. It does however cause a minor slowdown so
+        # could be ported out to the kernel level method, requiring making this method private for UX reasons.
+        tmax = tmax - tmin
 
         # Find scaling factor by mapping the max of t to the max of dimensions and apply this to the vector of ts
         # This leads to a default scaling of max(r) * max(r) which is at least the right order of magnitude
 
-        t = t * (max(dimensions) / max(t))
+        t = t * (target / tmax)  # Can lead to a div0 error if all ts are the same...
+
         self.transformed_line = list(zip(t, r))
         return self
 
