@@ -1,4 +1,5 @@
 import skimage as img
+
 import cv2
 import numpy as np
 import matplotlib.pyplot as plt
@@ -63,7 +64,7 @@ def closest_contrasting_colour(palette, idcolour, hexcolour=False, showwarnings=
     return palette[idx]
 
 
-def merge_processed_images(dusting, edgemap, a=0.5, b=0.5):
+def merge_processed_images(dusting, edgemap, a=0.5, b=0.5, maskthreshold=0.25):
     logger.debug("Weighted average params: a={}, b={}".format(a, b))
     if a + b > 1:
         raise ValueError("weightings a and b must not add up to > 1!")
@@ -72,10 +73,14 @@ def merge_processed_images(dusting, edgemap, a=0.5, b=0.5):
     dusting = img.exposure.rescale_intensity(dusting, out_range=(0., 1.))
     edgemap = img.exposure.rescale_intensity(edgemap, out_range=(0., 1.))
     merged = dusting * a + edgemap * b
+
+    invmask = merged < maskthreshold
+    merged[invmask] = 0
+
     return merged
 
 
-def digitise_web(filepath, dust_colour=None):
+def digitise_web(filepath, hough_thresh=20, hough_len=20, hough_gap=5, dustweight=0.5, scharrweight=0.5, mergemaskthresh=0.25, dust_colour=None, return_intermediates=False):
     logger.info("Digitising {}".format(filepath))
     webimg = io.imread(filepath)
 
@@ -98,14 +103,25 @@ def digitise_web(filepath, dust_colour=None):
     webimg_scharr = filters.scharr(img.color.rgb2gray(webimg))
 
     logger.info("Merging dusting and scharr images...")
-    merged = merge_processed_images(webimg_dusting, webimg_scharr)
+    # May want to provide access to these merge params
+    merged = merge_processed_images(webimg_dusting, webimg_scharr, dustweight, scharrweight, mergemaskthresh)
 
-    logger.info("Performing probabilistic hough line transform...")
-    webimg_hough = img.transform.probabilistic_hough_line(merged, threshold=20, line_length=20, line_gap=5)
-    web_kernel = {"dimensions": merged.shape[::-1], "lines": webimg_hough}
+    logger.info("Performing probabilistic hough line transform, thresh={}, len={}, gap={}...".format(hough_thresh, hough_len, hough_gap))
+    webimg_hough = img.transform.probabilistic_hough_line(merged, threshold=hough_thresh, line_length=hough_len, line_gap=hough_gap)
+    web_dict = {"dimensions": merged.shape[::-1], "lines": webimg_hough}
 
     logger.info("Digitisation complete.")
-    return web_kernel
+    if return_intermediates:
+        intermediates = {"palette": palette,
+                         "labels": labels,
+                         "counts": counts,
+                         "contrasting_colour": palette[contrasting_col_estimate_idx],
+                         "dusting": webimg_dusting,
+                         "scharr": webimg_scharr,
+                         "merged": merged}
+        return web_dict, intermediates
+    else:
+        return web_dict
 
 
 def logtest_digitise():

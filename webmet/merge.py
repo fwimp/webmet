@@ -6,6 +6,7 @@ import itertools
 from webmet.const import line_types, colour_list
 from webmet.util import flip_web
 import matplotlib.pyplot as plt
+from matplotlib.collections import LineCollection
 import multiprocessing as mp
 import sys
 from webmet.exceptions import MergeError
@@ -112,7 +113,7 @@ def find_orientation_difference(line1, line2, absolute=True):
         return out
 
 
-def plot_kernel(kernel, filter_lines=None, transformed=False):
+def legacy_plot_kernel(kernel, filter_lines=None, transformed=False, return_objs=False):
     # Default to including all linetypes
     incl_linetypes = set([x for x in range(len(line_types))])
 
@@ -144,7 +145,76 @@ def plot_kernel(kernel, filter_lines=None, transformed=False):
         ax.set_ylim((0, kernel.dimensions[1]))
 
     # ax.axis('off')
-    plt.show()
+    # plt.show()
+    if return_objs:
+        return fig, ax
+    else:
+        plt.show()
+    # TODO: Make this func potentially return a plot object
+
+
+def plot_kernel(kernel, filter_lines=None, transformed=False, return_objs=False, colours=None, bgcolour="#460555"):
+    # Default to including all linetypes
+    incl_linetypes = set([x for x in range(len(line_types))])
+
+    if filter_lines is not None:
+        if isinstance(filter_lines, str):
+            # Convert filter as string into list of one
+            filter_lines = [filter_lines]
+        incl_linetypes = set()
+        for lt in filter_lines:
+            try:
+                incl_linetypes.add(line_types.index(lt.title()))
+            except ValueError:
+                warnings.warn('"{}" is not a valid linetype, ignoring.'.format(lt))
+
+    # Allow user to filter only the linetypes they wish for
+    if colours is not None:
+        if isinstance(colours, list):
+            if len(colours) < len(colour_list):
+                warnings.warn('Provided colour list does not contain enough colours. Expected {}, got {}.'.format(len(colour_list), len(colours)))
+                colours = colour_list
+        else:
+            warnings.warn('Colours must be provided as named colours or hexcodes in a list of length {} or greater'.format(len(colour_list)))
+            colours = colour_list
+    else:
+        colours = colour_list
+
+    # Filter Lines
+    plotlines = [line for line in kernel if line.line_type in incl_linetypes]
+
+    # Get Colour list
+    plotline_colours = [colours[line.line_type] for line in plotlines]
+
+    # get transformed if needed
+    if transformed:
+        plotlines_raw = [line.transformed_line for line in plotlines]
+    else:
+        plotlines_raw = [line.line for line in plotlines]
+
+    # Pack into linecollection
+    linecollection = LineCollection(plotlines_raw, colors=plotline_colours)
+
+    # Plot Kernel
+    fig, ax = plt.subplots(1, figsize=(10, 10))
+
+    if bgcolour:
+        ax.patch.set_facecolor(bgcolour)
+
+    ax.add_collection(linecollection)
+
+    if not transformed:
+        ax.set_xlim((0, kernel.dimensions[0]))
+        ax.set_ylim((0, kernel.dimensions[1]))
+    else:
+        ax.autoscale()
+
+    # ax.axis('off')
+    # plt.show()
+    if return_objs:
+        return fig, ax
+    else:
+        plt.show()
     # TODO: Make this func potentially return a plot object
 
 
@@ -206,7 +276,7 @@ class WebKernel:
         [l.recalculate_transformed_orientation() for l in self.lines]
         return self
 
-    def to_polar(self, origin=None, overwrite=True, flipped=False):
+    def to_polar(self, origin=None, overwrite=True, flipped=False, offset=0):
         [l.to_polar(origin, overwrite=overwrite, flipped=flipped) for l in self.lines]
         # return [l.to_polar(origin, flipped) for l in self.lines]
         return self
@@ -336,7 +406,7 @@ class WebLine:
         self.transformed_orientation = find_line_orientation(self.transformed_line)
         return self
 
-    def to_polar(self, origin=None, overwrite=True, flipped=False):
+    def to_polar(self, origin=None, overwrite=True, flipped=False, offset=0):
         if overwrite:
             points = self.line
         else:
@@ -351,7 +421,7 @@ class WebLine:
             x = x - ox
             y = y - oy
         r = np.sqrt(x ** 2 + y ** 2)
-        t = np.arctan2(y, x)    # Note could fail in the case that x = y = 0? Need to check
+        t = np.arctan2(y, x)   # Note could fail in the case that x = y = 0? Need to check
 
         if flipped:
             out = list(zip(t, r))
@@ -390,10 +460,10 @@ class WebLine:
 
         t = t + np.pi  # normalise to between 0 and 2pi aka t = t - tmin
 
-        tmax = 2 * np.pi    # aka tmax = tmax - tmin
+        # tmax = 2 * np.pi    # aka tmax = tmax - tmin
 
         # Find scaling factor by mapping the max of t to the target and apply this to the vector of ts
-        t = t * (target / 2 * np.pi)
+        t = t * (target / (2 * np.pi))
 
         self.transformed_line = list(zip(t, r))
         return self
