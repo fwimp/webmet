@@ -223,12 +223,17 @@ class WebKernel:
         if webdict:
             self.webdict = webdict
             self.lines = [WebLine(x, i) for i, x in enumerate(self.webdict["lines"])]
+            self.corners = self.webdict["corners"]
             self.dimensions = self.webdict.get("dimensions", self.find_dimensions(self))
             self.remove_zero_lines(returnself=False)
         else:
             self.webdict = dict()
             self.lines = []
+            self.corners = []
             self.dimensions = []
+        self.ellipse_orientation = None
+        self.ellipse_scaling = None
+        self.origin = (0, 0)
 
     def __len__(self):
         return len(self.lines)
@@ -277,16 +282,26 @@ class WebKernel:
         return self
 
     def to_polar(self, origin=None, overwrite=True, flipped=False, offset=0):
+        if origin is None:
+            origin = self.origin
+        else:
+            self.origin = origin
         [l.to_polar(origin, overwrite=overwrite, flipped=flipped) for l in self.lines]
         # return [l.to_polar(origin, flipped) for l in self.lines]
         return self
 
     def ellipse_transform(self, origin, orientation, scaling, overwrite=True):
+        self.origin = origin
+        self.ellipse_orientation = orientation
+        self.ellipse_scaling = scaling
         [l.ellipse_transform(origin, orientation, scaling, overwrite) for l in self.lines]
         # return [l.ellipse_transform(origin, orientation, scaling) for l in self.lines]
         return self
 
     def ellipse_and_polar(self, origin, orientation, scaling, overwrite=True, flipped=False):
+        self.origin = origin
+        self.ellipse_orientation = orientation
+        self.ellipse_scaling = scaling
         [l.ellipse_and_polar(origin, orientation, scaling, overwrite, flipped) for l in self.lines]
         # return [l.ellipse_and_polar(origin, orientation, scaling, flipped) for l in self.lines]
         return self
@@ -302,6 +317,8 @@ class WebKernel:
             dimensions = [max(r), max(r)]
 
         # Rescale each line
+        # TODO: Change this to instead work from a given dimension if provided, or a max otherwise.
+        # This will allow
         [l.rescale(target=max(dimensions)) for l in self.lines]
         # [l.rescale(dimensions) for l in self.lines]
         return self
@@ -339,6 +356,11 @@ class WebKernel:
         self.paint(types)
         return self
 
+    def filter_polar_lines(self):
+        # Ellipse and Polar
+        # calc orientation
+        pass
+
     def as_list(self, transformed=False):
         if transformed:
             return [l.transformed_line for l in self.lines]
@@ -350,7 +372,7 @@ class WebKernel:
 
     def as_dict(self):
         """Export a Web Kernel as a dictionary"""
-        return {"dimensions": self.dimensions, "lines": [line.export() for line in self.lines]}
+        return {"dimensions": self.dimensions, "lines": [line.export() for line in self.lines], "corners": self.corners}
 
 
 class WebLine:

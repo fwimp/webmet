@@ -17,8 +17,9 @@ def is_horiz(theta, threshold=np.pi/20):
         return True
     return False
 
+
 def classify_threads_flexible(kernel, hub, threshold=np.pi / 20, hub_threshold_prop=0.07, ellipse_orientation=0, ellipse_scale=1):
-    """Perform polar coordinate unwrap, rescale, and assesment.
+    """Perform polar coordinate unwrap, rescale, and assessment.
     By default, return proportion of lines left uncategorised."""
 
     if ellipse_scale != 1:
@@ -26,6 +27,10 @@ def classify_threads_flexible(kernel, hub, threshold=np.pi / 20, hub_threshold_p
                                          flipped=True, )
     else:
         polar = kernel.to_polar(origin=hub, flipped=True)
+
+    # Rescale to the size of the web kernel
+
+    dims = max(polar.find_dimensions(polar))
 
     polar.rescale(dimensions=kernel.dimensions).recalculate_transformed_orientations()
 
