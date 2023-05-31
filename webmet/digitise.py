@@ -1,10 +1,14 @@
 import skimage as img
+
 import cv2
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib
 from skimage import io
 from skimage import filters
+from skimage.feature import corner_harris, corner_peaks, corner_shi_tomasi, corner_fast, corner_kitchen_rosenfeld
+from skimage.exposure import rescale_intensity
+from scipy.spatial import cKDTree
 import os
 
 import logging
@@ -63,19 +67,56 @@ def closest_contrasting_colour(palette, idcolour, hexcolour=False, showwarnings=
     return palette[idx]
 
 
-def merge_processed_images(dusting, edgemap, a=0.5, b=0.5):
+def merge_processed_images(dusting, edgemap, a=0.5, b=0.5, maskthreshold=0.25):
     logger.debug("Weighted average params: a={}, b={}".format(a, b))
     if a + b > 1:
         raise ValueError("weightings a and b must not add up to > 1!")
 
     # Normalise inputs
-    dusting = img.exposure.rescale_intensity(dusting, out_range=(0., 1.))
-    edgemap = img.exposure.rescale_intensity(edgemap, out_range=(0., 1.))
+    dusting = rescale_intensity(dusting, out_range=(0., 1.))
+    edgemap = rescale_intensity(edgemap, out_range=(0., 1.))
     merged = dusting * a + edgemap * b
+
+    invmask = merged < maskthreshold
+    merged[invmask] = 0
+
     return merged
 
 
-def digitise_web(filepath, dust_colour=None):
+def corner_merged(image):
+    response_img = corner_fast(image) + corner_kitchen_rosenfeld(image) + corner_shi_tomasi(image) + corner_harris(image)
+    response_img = rescale_intensity(response_img)
+    return response_img
+
+
+def detect_corners(image, method="merged"):
+    method_choice = {
+        "merged": corner_merged,
+        "kitchen_rosenfeld": corner_kitchen_rosenfeld,
+        "shi_tomasi": corner_shi_tomasi,
+        "harris": corner_harris,
+        "fast": corner_fast
+    }
+    try:
+        corner_method = method_choice[method]
+    except KeyError:
+        logger.exception("Invalid corner method: {}".format(method))
+        raise
+    # Use method with corner_peaks as in jupyter notebook.
+    coords = corner_peaks(corner_method(image), min_distance=15, threshold_rel=0.2)
+    coords_y, coords_x = zip(*coords)
+    coords = np.asarray([list(a) for a in zip(coords_x, coords_y)])
+    return coords
+
+
+def nn_lines_from_corners(coords, distance):
+    corner_tree = cKDTree(coords)
+    pairs = corner_tree.query_pairs(r=distance)
+    lines = [[coords[i], coords[j]] for (i, j) in pairs]
+    return lines
+
+
+def digitise_web(filepath, hough_thresh=20, hough_len=20, hough_gap=5, dustweight=0.5, scharrweight=0.5, mergemaskthresh=0.25, dust_colour=None, return_intermediates=False):
     logger.info("Digitising {}".format(filepath))
     webimg = io.imread(filepath)
 
@@ -98,15 +139,77 @@ def digitise_web(filepath, dust_colour=None):
     webimg_scharr = filters.scharr(img.color.rgb2gray(webimg))
 
     logger.info("Merging dusting and scharr images...")
-    merged = merge_processed_images(webimg_dusting, webimg_scharr)
+    # May want to provide access to these merge params
+    merged = merge_processed_images(webimg_dusting, webimg_scharr, dustweight, scharrweight, mergemaskthresh)
 
-    logger.info("Performing probabilistic hough line transform...")
-    webimg_hough = img.transform.probabilistic_hough_line(merged, threshold=20, line_length=20, line_gap=5)
-    web_kernel = {"dimensions": merged.shape[::-1], "lines": webimg_hough}
+    logger.info("Performing probabilistic hough line transform, thresh={}, len={}, gap={}...".format(hough_thresh, hough_len, hough_gap))
+    webimg_hough = img.transform.probabilistic_hough_line(merged, threshold=hough_thresh, line_length=hough_len, line_gap=hough_gap)
+    web_dict = {"dimensions": merged.shape[::-1], "lines": webimg_hough, "corners": []}
 
     logger.info("Digitisation complete.")
-    return web_kernel
+    if return_intermediates:
+        intermediates = {"palette": palette,
+                         "labels": labels,
+                         "counts": counts,
+                         "contrasting_colour": palette[contrasting_col_estimate_idx],
+                         "dusting": webimg_dusting,
+                         "scharr": webimg_scharr,
+                         "merged": merged}
+        return web_dict, intermediates
+    else:
+        return web_dict
 
+
+def digitise_web_corner(filepath, dustweight=0.5, scharrweight=0.5, mergemaskthresh=0.25, dust_colour=None, return_intermediates=False):
+    logger.info("Digitising {}".format(filepath))
+    webimg = io.imread(filepath)
+
+    logger.info("Finding image palette...")
+    palette, labels, counts = find_image_palette(webimg)
+    logger.debug("Palette: {}".format(["#{0:02X}{1:02X}{2:02X}".format(*c.astype(np.uint8)) for c in palette]))
+
+    if dust_colour is None:
+        logger.info("Estimating most contrasting colour...")
+        contrasting_col_estimate_idx = estimate_contrasting_colour(palette, return_idx=True)
+    else:
+        logger.info("Finding colour closest to {}...".format(dust_colour))
+        contrasting_col_estimate_idx = closest_contrasting_colour(palette, dust_colour, hexcolour=True, return_idx=True)
+    logger.debug("Derived dust colour: #{0:02X}{1:02X}{2:02X}".format(*palette[contrasting_col_estimate_idx].astype(np.uint8)))
+
+    logger.info("Isolating dusted pixels...")
+    webimg_dusting = np.where(labels == contrasting_col_estimate_idx, 1, 0).reshape(webimg.shape[0:2])
+
+    logger.info("Performing Scharr edge detection...")
+    webimg_scharr = filters.scharr(img.color.rgb2gray(webimg))
+
+    logger.info("Merging dusting and scharr images...")
+    # May want to provide access to these merge params
+    merged = merge_processed_images(webimg_dusting, webimg_scharr, dustweight, scharrweight, mergemaskthresh)
+
+    # logger.info("Performing probabilistic hough line transform, thresh={}, len={}, gap={}...".format(hough_thresh, hough_len, hough_gap))
+    # webimg_hough = img.transform.probabilistic_hough_line(merged, threshold=hough_thresh, line_length=hough_len, line_gap=hough_gap)
+
+    # TODO, FW 2023: HERE we now need to switch into NJA
+    # Take merged and skeletonise
+    # Find corners a la NJA
+    # Trace web lines as above
+    
+    corners = detect_corners(merged, "kitchen_rosenfeld")
+    webimg_lines = nn_lines_from_corners(corners, max(merged.shape[::-1])/10)
+    web_dict = {"dimensions": merged.shape[::-1], "lines": webimg_lines, "corners": corners}
+
+    logger.info("Digitisation complete.")
+    if return_intermediates:
+        intermediates = {"palette": palette,
+                         "labels": labels,
+                         "counts": counts,
+                         "contrasting_colour": palette[contrasting_col_estimate_idx],
+                         "dusting": webimg_dusting,
+                         "scharr": webimg_scharr,
+                         "merged": merged}
+        return web_dict, intermediates
+    else:
+        return web_dict
 
 def logtest_digitise():
     s = "Digitise logger"

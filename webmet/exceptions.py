@@ -9,5 +9,8 @@ def logtest_exceptions():
     logger.info(s)
     logger.debug(s)
 
-class MergeError(Exception):
+class WebKernelError:
+    pass
+
+class MergeError(WebKernelError):
     pass
