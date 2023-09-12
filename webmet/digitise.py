@@ -10,6 +10,9 @@ from skimage.feature import corner_harris, corner_peaks, corner_shi_tomasi, corn
 from skimage.exposure import rescale_intensity
 from scipy.spatial import cKDTree
 import os
+# NJA is currently a private package, but should be available via git
+import NJA
+from skimage.color import rgb2gray
 
 import logging
 logger = logging.getLogger(__name__)
@@ -210,6 +213,42 @@ def digitise_web_corner(filepath, dustweight=0.5, scharrweight=0.5, mergemaskthr
         return web_dict, intermediates
     else:
         return web_dict
+
+
+def digitise_web_nja(
+        filepath, alreadybinarised=False,
+        multicore=False, try_predict=False, jump=10, lookback=10, max_thresh=30,
+        clusterlevel=2):
+
+    logger.info("Digitising {}".format(filepath))
+    webimg = io.imread(filepath)
+    webimg_grey = rgb2gray(webimg[:, :, :3])
+    if not alreadybinarised:
+        logger.info("Binarising image...")
+        binarised = webimg_grey    # TODO: Add binarisation using u-net
+    else:
+        binarised = webimg_grey
+    logger.info("Loading binarised image into NJA and skeletonising...")
+    net = NJA.NJANet(binarised)
+    net.skeletonize()
+    logger.info("Finding nodes...")
+    net.find_nodes()
+    logger.info("Finding directions...")
+    net.find_directions()
+    logger.info("Tracing paths...")
+    if multicore:
+        net.trace_paths_multicore(try_predict, jump, lookback, max_thresh)
+    else:
+        net.trace_paths(try_predict, jump, lookback, max_thresh)
+    logger.info("Cleaning edges...")
+    net.clean_edges()
+    if clusterlevel > 0:
+        logger.info("Clustering nodes...")
+        net.cluster_close_nodes(clusterlevel)
+    logger.info("Done.")
+
+    return net
+
 
 def logtest_digitise():
     s = "Digitise logger"

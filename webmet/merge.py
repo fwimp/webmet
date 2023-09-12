@@ -219,15 +219,16 @@ def plot_kernel(kernel, filter_lines=None, transformed=False, return_objs=False,
 
 
 class WebKernel:
-    def __init__(self, webdict=None):
-        if webdict:
-            self.webdict = webdict
-            self.lines = [WebLine(x, i) for i, x in enumerate(self.webdict["lines"])]
-            self.corners = self.webdict["corners"]
-            self.dimensions = self.webdict.get("dimensions", self.find_dimensions(self))
+    # TODO: Make possibly take NJANet list output
+    def __init__(self, net=None):
+        if net:
+            self.net = net
+            self.lines = [WebLine(x) for x in self.net.edges.values()]
+            self.corners = [x.pos for x in self.net.nodes.values()]
+            self.dimensions = self.net.image.shape[::-1]
             self.remove_zero_lines(returnself=False)
         else:
-            self.webdict = dict()
+            self.net = None
             self.lines = []
             self.corners = []
             self.dimensions = []
@@ -376,22 +377,16 @@ class WebKernel:
 
 
 class WebLine:
-    def __init__(self, line, lineid=-1, orientation=None, length=None, line_type=0):
-        self.line = line
-        self.id = lineid
-        self.transformed_line = line
+    # Make webline take NJAEdge as standard
+    def __init__(self, line, line_type=0):
+        self.line = None    # Looks like line should be in the format array(array(x1,y1), array(x2,y2)) but maybe should be flipped
+        self.length = None
+        self.pixel_length = None
+        self.id = None
+        self._extract_njaedge(line)     # Populate the above attributes
+        self.transformed_line = self.line
         self.line_type = line_type
-
-        if orientation is not None:
-            self.orientation = orientation
-        else:
-            self.orientation = self.find_orientation()
-
-        if length is not None:
-            self.length = length
-        else:
-            self.length = self.find_length()
-
+        self.orientation = self.find_orientation()
         self.transformed_orientation = self.orientation
 
     def __repr__(self):
@@ -410,6 +405,13 @@ class WebLine:
 
     #     def __len__(self):
     #         return len(self.line)
+
+    def _extract_njaedge(self, edge):
+        self.line = np.array([edge.start.pos, edge.end.pos])
+        edge.calc_direct_length()   # Force recalc of direct length
+        self.length = edge.direct_length
+        self.pixel_length = edge.pixel_length
+        self.id = edge.uid
 
     def find_orientation(self):
         return find_line_orientation(self.line)
